@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simple Web App — Tasks & Notes</title>
+  <meta name="description" content="A single-file demo web app: tasks, notes, search, filters, dark mode, and localStorage." />
+  <style>
+    :root{
+      --bg:#f6f7fb; --card:#ffffff; --muted:#6b7280; --accent:#2563eb; --success:#16a34a;
+      color-scheme: light;
+      font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+    [data-theme="dark"]{
+      --bg:#071023; --card:#0b1220; --muted:#9aa4b2; --accent:#06b6d4; --success:#34d399;
+      color-scheme: dark;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#e9eef9);}
+    .app{max-width:1100px;margin:28px auto;padding:18px}
+    header{display:flex;align-items:center;gap:16px}
+    .brand{display:flex;gap:12px;align-items:center}
+    .logo{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#60a5fa);display:flex;align-items:center;justify-content:center;color:white;font-weight:700}
+    h1{margin:0;font-size:18px}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+
+    .layout{display:grid;grid-template-columns:1fr 360px;gap:18px;margin-top:18px}
+    .panel{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.04)}
+
+    /* main */
+    .controls{display:flex;gap:10px;align-items:center;margin-bottom:12px}
+    .search{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(0,0,0,0.06)}
+    .btn{padding:9px 12px;border-radius:10px;background:linear-gradient(90deg,var(--accent),#7dd3fc);color:#022;display:inline-block;text-decoration:none;font-weight:600}
+
+    .add-form{display:flex;gap:10px;margin-bottom:12px}
+    .add-form input,.add-form textarea{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(0,0,0,0.06)}
+    .list{display:grid;gap:10px}
+    .item{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:10px;background:linear-gradient(180deg,rgba(0,0,0,0.02),transparent)}
+    .item .left{width:6px;height:44px;border-radius:6px}
+    .item h3{margin:0;font-size:15px}
+    .item p{margin:6px 0 0;color:var(--muted);font-size:13px}
+    .meta{margin-left:auto;text-align:right}
+    .chip{display:inline-block;padding:6px 8px;border-radius:999px;background:rgba(0,0,0,0.04);font-size:12px}
+
+    /* sidebar */
+    .sidebar .section{margin-bottom:12px}
+    .small{font-size:13px;color:var(--muted)}
+
+    /* responsive */
+    @media (max-width:900px){.layout{grid-template-columns:1fr}.sidebar{order:2}}
+  </style>
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="brand">
+        <div class="logo">App</div>
+        <div>
+          <h1>Simple Tasks & Notes</h1>
+          <p class="lead">A minimal single-file app — add tasks, search, tag, and toggle dark mode.</p>
+        </div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <label class="small">Theme</label>
+        <button id="themeToggle" class="btn">Toggle</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <main>
+        <section class="panel">
+          <div class="controls">
+            <input id="search" class="search" placeholder="Search tasks or notes...">
+            <div class="small">Matches: <span id="count">0</span></div>
+          </div>
+
+          <form id="addForm" class="add-form">
+            <input id="title" placeholder="Title" required />
+            <input id="tags" placeholder="tags (comma separated)" />
+            <button class="btn">Add</button>
+          </form>
+
+          <div id="list" class="list"></div>
+        </section>
+
+        <section style="margin-top:12px" class="panel small">
+          <strong>How it works</strong>
+          <ul>
+            <li>Tasks are stored locally in your browser (localStorage).</li>
+            <li>Use the search box to filter by title or tags.</li>
+            <li>Click a task to toggle completion. Use the delete button to remove it.</li>
+          </ul>
+        </section>
+      </main>
+
+      <aside class="sidebar">
+        <div class="panel">
+          <div class="section">
+            <strong>Filters</strong>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn" data-filter="all">All</button>
+              <button class="btn" data-filter="active">Active</button>
+              <button class="btn" data-filter="done">Done</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <strong>Quick actions</strong>
+            <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+              <button id="clearDone" class="btn">Clear completed</button>
+              <button id="export" class="btn">Export JSON</button>
+            </div>
+          </div>
+
+          <div class="section small">
+            <strong>Storage</strong>
+            <div id="storageInfo">—</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // Simple single-file app logic
+    const STORAGE_KEY = 'simple_app_tasks_v1';
+    const app = document.getElementById('app');
+    const listEl = document.getElementById('list');
+    const countEl = document.getElementById('count');
+    const searchEl = document.getElementById('search');
+    const addForm = document.getElementById('addForm');
+    const titleEl = document.getElementById('title');
+    const tagsEl = document.getElementById('tags');
+    const themeToggle = document.getElementById('themeToggle');
+    const storageInfo = document.getElementById('storageInfo');
+
+    let tasks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    let filter = 'all';
+
+    function save(){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+      updateStorageInfo();
+    }
+
+    function updateStorageInfo(){
+      try{
+        const used = new Blob([localStorage.getItem(STORAGE_KEY) || '']).size;
+        storageInfo.textContent = `${tasks.length} items · ${used} bytes used`;
+      }catch(e){storageInfo.textContent = `${tasks.length} items`}
+    }
+
+    function addTask(title, tags=[]){
+      tasks.unshift({id:Date.now(),title, tags, done:false, created:new Date().toISOString()});
+      save(); render();
+    }
+
+    function removeTask(id){tasks = tasks.filter(t => t.id !== id); save(); render();}
+    function toggleDone(id){tasks = tasks.map(t=> t.id===id ? {...t,done:!t.done}:t); save(); render();}
+
+    function render(){
+      const q = (searchEl.value||'').toLowerCase().trim();
+      const visible = tasks.filter(t=>{
+        if(filter==='active' && t.done) return false;
+        if(filter==='done' && !t.done) return false;
+        if(!q) return true;
+        return t.title.toLowerCase().includes(q) || (t.tags||[]).join(',').toLowerCase().includes(q);
+      });
+
+      listEl.innerHTML = '';
+      visible.forEach(task=>{
+        const item = document.createElement('div'); item.className='item';
+        const color = task.done? 'linear-gradient(180deg,var(--success),#bbf7d0)': 'linear-gradient(180deg,var(--accent),#bfdbfe)';
+        item.innerHTML = `
+          <div class="left" style="background:${color}"></div>
+          <div>
+            <h3 style="text-decoration:${task.done? 'line-through':'none'}">${escapeHtml(task.title)}</h3>
+            <p class="small">${(task.tags||[]).map(escapeHtml).join(', ')} · ${new Date(task.created).toLocaleString()}</p>
+          </div>
+          <div class="meta">
+            <div style="margin-bottom:6px"><span class="chip">ID: ${task.id}</span></div>
+            <div>
+              <button class="btn" data-action="toggle" data-id="${task.id}">${task.done? 'Undo':'Done'}</button>
+              <button class="btn" data-action="delete" data-id="${task.id}" style="margin-left:6px">Delete</button>
+            </div>
+          </div>
+        `;
+        listEl.appendChild(item);
+      });
+      countEl.textContent = visible.length;
+      updateStorageInfo();
+    }
+
+    // Utilities
+    function escapeHtml(s){return String(s).replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"})[c]);}
+
+    // Events
+    addForm.addEventListener('submit', e=>{
+      e.preventDefault();
+      const title = titleEl.value.trim();
+      if(!title) return;
+      const tags = tagsEl.value.split(',').map(t=>t.trim()).filter(Boolean);
+      addTask(title,tags);
+      titleEl.value=''; tagsEl.value='';
+    });
+
+    searchEl.addEventListener('input', ()=>render());
+
+    document.addEventListener('click', e=>{
+      const btn = e.target.closest('[data-action]');
+      if(!btn) return;
+      const id = Number(btn.dataset.id);
+      const action = btn.dataset.action;
+      if(action==='toggle') toggleDone(id);
+      if(action==='delete') removeTask(id);
+    });
+
+    document.querySelectorAll('[data-filter]').forEach(b=>b.addEventListener('click', e=>{
+      filter = e.target.dataset.filter; render();
+    }));
+
+    document.getElementById('clearDone').addEventListener('click', ()=>{
+      tasks = tasks.filter(t=>!t.done); save(); render();
+    });
+
+    document.getElementById('export').addEventListener('click', ()=>{
+      const blob = new Blob([JSON.stringify(tasks, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'tasks.json'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // Theme toggle
+    const userPref = localStorage.getItem('simple_app_theme');
+    if(userPref) document.documentElement.setAttribute('data-theme', userPref);
+    themeToggle.addEventListener('click', ()=>{
+      const cur = document.documentElement.getAttribute('data-theme');
+      const next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('simple_app_theme', next);
+    });
+
+    // initial render
+    render();
+  </script>
+</body>
+</html>
